@@ -293,7 +293,7 @@ monthly_performance <- function(current_month){
            title = "Posts by Benchmark Tiers - Engagement Rate",
            caption = glue::glue("For the month of {format(unique(bucket_full$month), '%B %Y')}"))
     
-    # save
+    # save to figure folder
     ggsave(glue::glue(here::here("figures","impression_bucket_{format(unique(bucket_full$month), '%b-%Y')}.png")),
            imp_bucket_plot,
            width = 6.4, height = 4.21)
@@ -301,6 +301,7 @@ monthly_performance <- function(current_month){
     ggsave(glue::glue(here::here("figures","er_bucket_{format(unique(bucket_full$month), '%b-%Y')}.png")),
            er_bucket_plot,
            width = 6.4, height = 4.21)
+    
     # upload to google drive
     folder_id <- "1DNQai52oQlQuIRJas3N0dwBBM_lAVKXe"
     googledrive::drive_upload(glue::glue(here::here("figures","impression_bucket_{format(unique(bucket_full$month), '%b-%Y')}.png")), 
@@ -328,8 +329,8 @@ plot_benchmark_graphs <- function(sheet_id = "1kyVKRuQcYmjnL6iSfwoBfWvPfvMnJw-sJ
 
 # TO USE:  ----------------------------------------------------------------
 
-# 1. Run function with data in proper location
-monthly_performance(12)
+# 1. Run function with data in proper location 
+# monthly_performance(12)
 # 2. Manually add in follower data in Sheets
 # 3. Run the benchmark graphs
-plot_benchmark_graphs()
+# plot_benchmark_graphs()
