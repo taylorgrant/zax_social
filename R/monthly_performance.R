@@ -3,6 +3,7 @@ monthly_performance <- function(current_month){
   
   pacman::p_load(tidyverse, janitor, here, glue, googlesheets4)
   
+  # thresholds for bucketing 
   thresholds <- tibble(network = c("Facebook", "Instagram Post", "Instagram Story",
                                    "TikTok", "X"),
                        imp_p_5 = c(12100, 11700, 1800, 1200, 3400),
@@ -11,6 +12,16 @@ monthly_performance <- function(current_month){
                        er_p_5 = c(.0166, .0434, .0003, .0283, .0180),
                        er_p_70 = c(.033, .0705, .0014, .0535, .0268),
                        er_p_95 = c(.093, .104, .0083, .128, .0408))
+  
+  # organic impression fn
+  get_organic_impressions <- function(tbl){
+    tbl |> 
+      mutate(imp = case_when(is.na(organic_impressions) ~ impressions,
+                             organic_impressions < impressions ~ organic_impressions,
+                             TRUE ~ organic_impressions))
+  }
+  
+  
   # set up previous month
   # set up current and previous month/year
   previous_month <- ((current_month - 2) %% 12) + 1
@@ -19,6 +30,9 @@ monthly_performance <- function(current_month){
   
   previous_data <- glue::glue(here::here("data", "zaxby_post_{previous_month}.{previous_year}.csv"))
   current_data <- glue::glue(here::here("data", "zaxby_post_{current_month}.{current_year}.csv"))
+  
+  if (!file.exists(current_data)) stop(glue("Missing current data file: {current_data}"))
+  if (!file.exists(previous_data)) stop(glue("Missing previous data file: {previous_data}"))
   
   # 1. READ IN DATA ----------------------------------------------------------
   previous <- read_csv(previous_data) |> 
@@ -54,14 +68,11 @@ monthly_performance <- function(current_month){
     select(-date2)
   
   # read in benchmarks per platform
-  benchmarks <- readRDS("~/R/zaxbys/social_2024/data/benchmarks.rds")
-  
+  benchmarks <- readRDS(here::here("data", "benchmarks.rds"))
   
   # 2. CALCULATE MONTHLY TOTALS ------------------------------------------------
   previous_totals <- previous |> 
-    mutate(imp = case_when(is.na(organic_impressions) ~ impressions,
-                           organic_impressions < impressions ~ organic_impressions,
-                           TRUE ~ organic_impressions)) |> 
+    get_organic_impressions() |>  
     mutate(imp = case_when(network == "TikTok" ~ video_views,
                            TRUE ~ imp),
            month = floor_date(as.Date(date, format = "%m/%d/%Y"), "month")) |> 
@@ -72,9 +83,7 @@ monthly_performance <- function(current_month){
               er = sum(engagements)/impressions)
   
   current_totals <- current |> 
-    mutate(imp = case_when(is.na(organic_impressions) ~ impressions,
-                           organic_impressions < impressions ~ organic_impressions,
-                           TRUE ~ organic_impressions)) |> 
+    get_organic_impressions() |> 
     mutate(imp = case_when(network == "TikTok" ~ video_views,
                            TRUE ~ imp),
            month = floor_date(as.Date(date, format = "%m/%d/%Y"), "month")) |> 
@@ -95,9 +104,7 @@ monthly_performance <- function(current_month){
   
   # 3. PLATFORM PERFORMANCE ----------------------------------------------------
   previous_platform_performance <- previous |> 
-    mutate(imp = case_when(is.na(organic_impressions) ~ impressions,
-                           organic_impressions < impressions ~ organic_impressions,
-                           TRUE ~ organic_impressions)) |> 
+    get_organic_impressions() |> 
     mutate(imp = case_when(network == "TikTok" ~ video_views,
                            TRUE ~ imp),
            month = floor_date(as.Date(date, format = "%m/%d/%Y"), "month")) |> 
@@ -108,9 +115,7 @@ monthly_performance <- function(current_month){
               prev_n = n())
   
   platform_performance <- current |> 
-    mutate(imp = case_when(is.na(organic_impressions) ~ impressions,
-                           organic_impressions < impressions ~ organic_impressions,
-                           TRUE ~ organic_impressions)) |> 
+    get_organic_impressions() |> 
     mutate(imp = case_when(network == "TikTok" ~ video_views,
                            TRUE ~ imp),
            month = floor_date(as.Date(date, format = "%m/%d/%Y"), "month")) |> 
@@ -138,9 +143,7 @@ monthly_performance <- function(current_month){
   
   # how did the current month's posts fall into each bucket range
   platform_thresholds <- current |> 
-    mutate(imp = case_when(is.na(organic_impressions) ~ impressions,
-                           organic_impressions < impressions ~ organic_impressions,
-                           TRUE ~ organic_impressions)) |> 
+    get_organic_impressions() |> 
     mutate(imp = case_when(network == "TikTok" ~ video_views,
                            TRUE ~ imp),
            er = engagements/imp, 
@@ -166,39 +169,42 @@ monthly_performance <- function(current_month){
   
   
   # 4. POST PERFORMANCE -----------------------------------------------------
-  bw_imp <- current |> 
-    mutate(imp = case_when(is.na(organic_impressions) ~ impressions,
-                           organic_impressions < impressions ~ organic_impressions,
-                           TRUE ~ organic_impressions)) |> 
-    mutate(imp = case_when(network == "TikTok" ~ video_views,
-                           TRUE ~ imp)) |> 
-    mutate(er = round(engagements/imp, 3),
-           post_date = as.Date(date, "%m/%d/%Y"),
-           month = floor_date(post_date, "month")) |>
-    group_by(network) |> 
-    arrange(desc(imp), .by_group = TRUE) |> 
-    slice(c(1:2, (n()-1):n())) |> 
-    ungroup() |> 
-    left_join(select(benchmarks$bm_imp, c(network, benchmark = bm_imp))) |> 
-    mutate(rating = rep(c('Best', 'Best', 'Worst', 'Worst'), 5)) |> 
-    select(month, post_date, network, rating, post, link, impressions = imp, benchmark, er, tags) %>%
-    set_names(nm = toupper(names(.)))
+  # protect against 0 rows of data for a network
+  top_bottom_n <- function(data, metric, n = 2) {
+    if (nrow(data) == 0) return(data)  # <-- early return if group is empty
+    
+    metric <- rlang::ensym(metric)
+    
+    best <- data |> arrange(desc(!!metric)) |> slice_head(n = n)
+    worst <- data |> arrange(!!metric) |> slice_head(n = n)
+    
+    bind_rows(best, worst) %>%
+      mutate(rating = rep(c("Best", "Best", "Worst", "Worst"), length.out = nrow(.)))
+  }
   
-  bw_er <- current |> 
-    mutate(imp = case_when(is.na(organic_impressions) ~ impressions,
-                           organic_impressions < impressions ~ organic_impressions,
-                           TRUE ~ organic_impressions)) |> 
-    mutate(imp = case_when(network == "TikTok" ~ video_views,
-                           TRUE ~ imp)) |> 
-    mutate(er = round(engagements/imp, 3),
+  bw_imp <- current |> 
+    get_organic_impressions() |> 
+    mutate(imp = if_else(network == "TikTok", video_views, imp),
+           er = round(engagements / imp, 3),
            post_date = as.Date(date, "%m/%d/%Y"),
            month = floor_date(post_date, "month")) |> 
     group_by(network) |> 
-    arrange(desc(er), .by_group = TRUE) |> 
-    slice(c(1:2, (n()-1):n())) |> 
+    group_modify( ~ top_bottom_n(.x, metric = imp)) |> 
+    ungroup() |> 
+    left_join(select(benchmarks$bm_imp, c(network, benchmark = bm_imp))) |> 
+    select(month, post_date, network, rating, post, link, impressions = imp, benchmark, er, tags) %>% 
+    set_names(nm = toupper(names(.)))
+  
+  bw_er <- current |> 
+    get_organic_impressions() |> 
+    mutate(imp = if_else(network == "TikTok", video_views, imp),
+           er = round(engagements / imp, 3),
+           post_date = as.Date(date, "%m/%d/%Y"),
+           month = floor_date(post_date, "month")) |> 
+    group_by(network) |> 
+    group_modify( ~ top_bottom_n(.x, metric = er)) |> 
     ungroup() |> 
     left_join(select(benchmarks$bm_er, c(network, benchmark = bm_er))) |> 
-    mutate(rating = rep(c('Best', 'Best', 'Worst', 'Worst'), 5)) |> 
     select(month, post_date, network, rating, post, link, impressions = imp, er, benchmark, tags) %>%
     set_names(nm = toupper(names(.)))
   
@@ -288,34 +294,42 @@ monthly_performance <- function(current_month){
            caption = glue::glue("For the month of {format(unique(bucket_full$month), '%B %Y')}"))
     
     # save
-    ggsave(glue::glue("~/R/zaxbys/social_2024/figures/impression_bucket_{format(unique(bucket_full$month), '%b-%Y')}.png"),
+    ggsave(glue::glue(here::here("figures","impression_bucket_{format(unique(bucket_full$month), '%b-%Y')}.png")),
            imp_bucket_plot,
            width = 6.4, height = 4.21)
     
-    ggsave(glue::glue("~/R/zaxbys/social_2024/figures/er_bucket_{format(unique(bucket_full$month), '%b-%Y')}.png"),
+    ggsave(glue::glue(here::here("figures","er_bucket_{format(unique(bucket_full$month), '%b-%Y')}.png")),
            er_bucket_plot,
            width = 6.4, height = 4.21)
     # upload to google drive
     folder_id <- "1DNQai52oQlQuIRJas3N0dwBBM_lAVKXe"
-    googledrive::drive_upload(glue::glue("~/R/zaxbys/social_2024/figures/impression_bucket_{format(unique(bucket_full$month), '%b-%Y')}.png"), path = googledrive::as_id(folder_id))
-    googledrive::drive_upload(glue::glue("~/R/zaxbys/social_2024/figures/er_bucket_{format(unique(bucket_full$month), '%b-%Y')}.png"), path = googledrive::as_id(folder_id))
+    googledrive::drive_upload(glue::glue(here::here("figures","impression_bucket_{format(unique(bucket_full$month), '%b-%Y')}.png")), 
+                              path = googledrive::as_id(folder_id))
+    googledrive::drive_upload(glue::glue(here::here("figures","er_bucket_{format(unique(bucket_full$month), '%b-%Y')}.png")), 
+                              path = googledrive::as_id(folder_id))
   }
+}
   
-  # 6. BENCHMARK GRAPHS -----------------------------------------------------
-  # MUST MANUALLY INPUT FOLLOWER CHANGES BEFORE CALLING THIS 
-  id <- "1kyVKRuQcYmjnL6iSfwoBfWvPfvMnJw-sJkTWY4t6S7g"
-  # folder_id <- "1DNQai52oQlQuIRJas3N0dwBBM_lAVKXe"
-  sheet_names <- sheet_names(id)
+
+# NEW FUNCTION WITH BENCHMARK GRAPHS --------------------------------------
+plot_benchmark_graphs <- function(sheet_id = "1kyVKRuQcYmjnL6iSfwoBfWvPfvMnJw-sJkTWY4t6S7g") {
+  pacman::p_load(googlesheets4, purrr, janitor)
+  sheet_names <- sheet_names(sheet_id)
   # read in all sheets
   all_sheets <- map(sheet_names, ~ read_sheet(ss = id, sheet = .x, skip = 1) |>
                       clean_names())
   names(all_sheets) <- sheet_names
-  source("~/R/zaxbys/social_2024/R/plot_function.R")
-  # run through
+  source(here::here("R","plot_function.R"))
+  # run through these sheets and plot
   sheet_names[2:6] |>
     walk(plot_function)
-  
 }
 
-# to run the function -
-# monthly_performance(12)
+
+# TO USE:  ----------------------------------------------------------------
+
+# 1. Run function with data in proper location
+monthly_performance(12)
+# 2. Manually add in follower data in Sheets
+# 3. Run the benchmark graphs
+plot_benchmark_graphs()
