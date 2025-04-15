@@ -9,7 +9,9 @@ plot_function <- function(platform) {
   # source the theme for the plots 
   devtools::source_gist("https://gist.github.com/taylorgrant/1a486bccbde092d3b333a496e60049d5")
   
-  benchmarks <- readRDS("~/R/zaxbys/social_2024/data/benchmarks.rds")
+  # pull in benchmarks 
+  benchmarks <- readRDS(here::here("data", "benchmarks.rds"))
+  
   # function to format a number 
   format_number <- function(x) {
     case_when(
