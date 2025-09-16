@@ -103,5 +103,5 @@ follower_plot <- function(file_location) {
     purrr::walk(make_plot)
 }
 
-file_location <- "~/Downloads/Profile Performance (Zaxbys) July 1, 2024 - September 16, 2025.csv"
+file_location <- "FOLDER/WITH/FOLLOWER/DATA" # this is a csv file
 follower_plot(file_location)
