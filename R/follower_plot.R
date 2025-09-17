@@ -33,7 +33,8 @@ follower_plot <- function(file_location) {
 
   # filter so data is rolling 12 month
   dat <- dat |>
-    dplyr::filter(date >= max(dat$date) - lubridate::years(1))
+    # dplyr::filter(date >= max(dat$date) - lubridate::years(1))
+    dplyr::filter(date >= "2025-01-31")
 
   # plot function
   make_plot <- function(net) {
@@ -77,7 +78,17 @@ follower_plot <- function(file_location) {
         title = net,
         caption = "Bars capture month-end follower counts"
       ) +
-      ggplot2::theme(plot.title.position = "plot")
+      ggplot2::theme(
+        plot.title.position = "plot",
+        plot.background = ggplot2::element_rect(
+          fill = "transparent",
+          color = NA
+        ),
+        panel.background = ggplot2::element_rect(
+          fill = "transparent",
+          color = NA
+        )
+      )
 
     # save plot
     ggplot2::ggsave(
@@ -86,7 +97,8 @@ follower_plot <- function(file_location) {
       ),
       plot = p,
       width = 8,
-      height = 5
+      height = 5,
+      bg = "transparent"
     )
     # upload to google drive
     folder_id <- "1Okf2ALjrTJhBF47WuK4tquVKjPcKVWoN"
